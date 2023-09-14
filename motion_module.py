@@ -203,7 +203,7 @@ class TemporalTransformer3DModel(nn.Module):
             hidden_states = block(
                 hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
-                video_length=self.video_length,
+                video_length=video_length,
             )
 
         # output
