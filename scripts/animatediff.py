@@ -70,13 +70,13 @@ class AnimateDiffScript(scripts.Script):
                 enable = gr.Checkbox(value=False, label='Enable AnimateDiff')
                 video_length = gr.Slider(minimum=1, maximum=24, value=16, step=1, label="Number of frames", precision=0)
                 fps = gr.Number(minimum=1, value=8, label="FPS", info= "(Frames per second)", precision=0)
-                loop_number = gr.Number(minimum=0, value=0, label="Display loop number", info="(0 = infinite loop)", precision=0)
+                ping_pong = gr.Checkbox(value=False, label="Make a ping-pong loop")
             with gr.Row():
                 unload = gr.Button(value="Move motion module to CPU (default if lowvram)")
                 remove = gr.Button(value="Remove motion module from any memory")
                 unload.click(fn=self.move_motion_module_to_cpu)
                 remove.click(fn=self.remove_motion_module)
-        self.ui_controls = enable, loop_number, video_length, fps, model
+        self.ui_controls = enable, ping_pong, video_length, fps, model
         return self.ui_controls
         
     def make_controls_compatible_with_infotext_copy_paste(self, ui_controls = []):
@@ -194,7 +194,7 @@ class AnimateDiffScript(scripts.Script):
         if enable_animatediff:
             p.main_prompt = p.all_prompts[0] ## Ensure the video's infotext displays correctly below the video
 
-    def save_video(self, p, res, loop_number, video_length, fps, video_paths, output_directory, image_itr, generated_filename):
+    def save_video(self, p, res, ping_pong, video_length, fps, video_paths, output_directory, image_itr, generated_filename):
         video_list = res.images[image_itr:image_itr + video_length]
         seq = images.get_next_sequence_number(output_directory, "")
         filename = f"{seq:05}-{generated_filename}"
@@ -208,10 +208,12 @@ class AnimateDiffScript(scripts.Script):
         
         geninfo = res.infotext(p, res.index_of_first_image)
         use_geninfo = shared.opts.enable_pnginfo and geninfo is not None
-            
+        npimages = [numpy.array(v) for v in video_list]
+        if ping_pong:
+            npimages.extend(npimages[-2:0:-1])
         if video_extension == "gif":
             imageio.imwrite(
-                video_path, [numpy.array(v) for v in video_list], plugin='pyav', fps=fps, 
+                video_path, npimages, plugin='pyav', fps=fps, 
                 codec='gif', out_pixel_format='pal8',
                 filter_graph=(
                     {
@@ -235,12 +237,12 @@ class AnimateDiffScript(scripts.Script):
                         "Exif":{
                             piexif.ExifIFD.UserComment:piexif.helper.UserComment.dump(geninfo, encoding="unicode")}})
             imageio.imwrite(
-                video_path, video_list, duration=video_duration, loop=loop_number, 
+                video_path, npimages, duration=video_duration, loop=0, 
                 quality=video_quality, lossless=video_use_lossless_quality, exif=(exif_bytes if use_geninfo else b''))
 
     def postprocess(
             self, p: StableDiffusionProcessing, res: Processed, 
-            enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v14.ckpt"):
+            enable_animatediff=False, ping_pong=False, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
         
         if enable_animatediff:
             self.eject_motion_module_to_unet(p)
@@ -264,7 +266,7 @@ class AnimateDiffScript(scripts.Script):
                                                    "[seed]").lstrip(' ').rstrip('\\ /')
                 
                 for image_itr in range(res.index_of_first_image, len(res.images), video_length):
-                    self.save_video(p, res, loop_number, video_length, fps, video_paths, output_directory, image_itr, generated_filename)
+                    self.save_video(p, res, ping_pong, video_length, fps, video_paths, output_directory, image_itr, generated_filename)
                     
                 res.images = video_paths
                 self.logger.info("AnimateDiff process end.")
