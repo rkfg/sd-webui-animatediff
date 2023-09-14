@@ -1,8 +1,9 @@
 import os
 import gc
 import gradio as gr
-import imageio
+import imageio.v3 as imageio
 import ast
+import numpy
 import torch
 import piexif
 import piexif.helper
@@ -209,16 +210,31 @@ class AnimateDiffScript(scripts.Script):
         use_geninfo = shared.opts.enable_pnginfo and geninfo is not None
             
         if video_extension == "gif":
-            optimize = not video_use_lossless_quality
-            imageio.mimsave(
-                video_path, video_list, duration=video_duration, loop=loop_number, optimize=optimize, 
-                comment=(geninfo if use_geninfo else ""))
+            imageio.imwrite(
+                video_path, [numpy.array(v) for v in video_list], plugin='pyav', fps=fps, 
+                codec='gif', out_pixel_format='pal8',
+                filter_graph=(
+                    {
+                        "split": ("split", ""),
+                        "palgen": ("palettegen", ""),
+                        "paluse": ("paletteuse", ""),
+                        "scale": ("scale", f"{video_list[0].width}:{video_list[0].height}")
+                    },
+                    [
+                        ("video_in", "scale", 0, 0),
+                        ("scale", "split", 0, 0),
+                        ("split", "palgen", 1, 0),
+                        ("split", "paluse", 0, 0),
+                        ("palgen", "paluse", 0, 1),
+                        ("paluse", "video_out", 0, 0),
+                    ]
+                ))
         elif video_extension == "webp":
             if use_geninfo:
                 exif_bytes = piexif.dump({
                         "Exif":{
                             piexif.ExifIFD.UserComment:piexif.helper.UserComment.dump(geninfo, encoding="unicode")}})
-            imageio.mimsave(
+            imageio.imwrite(
                 video_path, video_list, duration=video_duration, loop=loop_number, 
                 quality=video_quality, lossless=video_use_lossless_quality, exif=(exif_bytes if use_geninfo else b''))
 
