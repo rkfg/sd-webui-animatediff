@@ -174,7 +174,7 @@ class AnimateDiffScript(scripts.Script):
         p.sd_model.alphas_cumprod_prev = alphas_cumprod_prev
 
     def before_process(
-            self, p: StableDiffusionProcessing, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v14.ckpt"):
+            self, p: StableDiffusionProcessing, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
         if enable_animatediff:
             self.logger.info(f"AnimateDiff process start with video Max frames {video_length}, FPS {fps}, duration {video_length/fps},  motion module {model}.")
             assert video_length > 0 and fps > 0, "Video length and FPS should be positive."
@@ -190,7 +190,7 @@ class AnimateDiffScript(scripts.Script):
             self.set_ddim_alpha(p)
                 
     def postprocess_batch_list(
-            self, p, pp, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v14.ckpt", **kwargs):
+            self, p, pp, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt", **kwargs):
         if enable_animatediff:
             p.main_prompt = p.all_prompts[0] ## Ensure the video's infotext displays correctly below the video
 
