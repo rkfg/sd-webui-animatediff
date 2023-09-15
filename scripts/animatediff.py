@@ -85,8 +85,7 @@ class AnimateDiffScript(scripts.Script):
                 remove = gr.Button(value="Remove motion module from any memory")
                 unload.click(fn=self.move_motion_module_to_cpu)
                 remove.click(fn=self.remove_motion_module)
-        self.ui_controls = enable, ping_pong, downscale, restore_faces,
-        video_length, fps, model
+        self.ui_controls = enable, ping_pong, downscale, restore_faces, video_length, fps, model
         return self.ui_controls
         
     def make_controls_compatible_with_infotext_copy_paste(self, ui_controls = []):
@@ -186,8 +185,7 @@ class AnimateDiffScript(scripts.Script):
     def before_process(
             self, p: StableDiffusionProcessing, enable_animatediff=False, 
             ping_pong=True, downscale=True, restore_faces=False,
-            video_length=16, fps=8, 
-            model="mm_sd_v15_v2.ckpt"):
+            video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
         if enable_animatediff:
             self.logger.info(f"AnimateDiff process start with video Max frames {video_length}, FPS {fps}, duration {video_length/fps},  motion module {model}.")
             assert video_length > 0 and fps > 0, "Video length and FPS should be positive."
