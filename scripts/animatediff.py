@@ -76,6 +76,7 @@ class AnimateDiffScript(scripts.Script):
                 enable = gr.Checkbox(value=False, label='Enable AnimateDiff')
                 ping_pong = gr.Checkbox(value=True, label="Make a ping-pong loop")
                 downscale = gr.Checkbox(value=True, label="Downscale after hires fix")
+                restore_faces = gr.Checkbox(value=False, label="Restore faces")
             with gr.Row():
                 video_length = gr.Slider(minimum=1, maximum=24, value=16, step=1, label="Number of frames", precision=0)
                 fps = gr.Number(minimum=1, value=8, label="FPS", info= "(Frames per second)", precision=0)
@@ -84,7 +85,8 @@ class AnimateDiffScript(scripts.Script):
                 remove = gr.Button(value="Remove motion module from any memory")
                 unload.click(fn=self.move_motion_module_to_cpu)
                 remove.click(fn=self.remove_motion_module)
-        self.ui_controls = enable, ping_pong, downscale, video_length, fps, model
+        self.ui_controls = enable, ping_pong, downscale, restore_faces,
+        video_length, fps, model
         return self.ui_controls
         
     def make_controls_compatible_with_infotext_copy_paste(self, ui_controls = []):
@@ -183,7 +185,8 @@ class AnimateDiffScript(scripts.Script):
 
     def before_process(
             self, p: StableDiffusionProcessing, enable_animatediff=False, 
-            ping_pong=True, downscale=True, video_length=16, fps=8, 
+            ping_pong=True, downscale=True, restore_faces=False,
+            video_length=16, fps=8, 
             model="mm_sd_v15_v2.ckpt"):
         if enable_animatediff:
             self.logger.info(f"AnimateDiff process start with video Max frames {video_length}, FPS {fps}, duration {video_length/fps},  motion module {model}.")
@@ -191,6 +194,7 @@ class AnimateDiffScript(scripts.Script):
             p.batch_size = video_length
             self.hr = p.enable_hr
             p.enable_hr = False
+            p.restore_faces = restore_faces
             
             injection_params = InjectionParams(
                 video_length=video_length,
@@ -203,8 +207,8 @@ class AnimateDiffScript(scripts.Script):
                 
     def postprocess_batch_list(
             self, p: StableDiffusionProcessing, pp: PostprocessBatchListArgs, 
-            enable_animatediff=False, ping_pong=True, downscale=True,
-            video_length=16, fps=8, model="mm_sd_v15_v2.ckpt", **kwargs):
+            enable_animatediff=False, ping_pong=True, downscale=True, 
+            restore_faces=False, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt", **kwargs):
         if enable_animatediff:
             p.main_prompt = p.all_prompts[0] ## Ensure the video's infotext displays correctly below the video
 
@@ -294,7 +298,8 @@ class AnimateDiffScript(scripts.Script):
     def postprocess(
             self, p: StableDiffusionProcessing, res: Processed, 
             enable_animatediff=False, ping_pong=True, downscale=True,
-            video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
+            restore_faces=False, video_length=16, fps=8,
+            model="mm_sd_v15_v2.ckpt"):
         
         if enable_animatediff:
             self.eject_motion_module_to_unet(p)
