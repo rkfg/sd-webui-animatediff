@@ -77,6 +77,13 @@ def on_ui_settings():
             "info":  get_video_quality_info_text(),
             "wiki_link": None
         },
+        "animatediff_optimize_gif_palette": {
+            "default": True,
+            "title": "Optimize GIF palette for better quality",
+            "component_type": gr.Checkbox,
+            "info": "Greatly reduces banding and sometimes file size",
+            "wiki_link": None        
+        },
         "animatediff_filename_pattern": {
             "default": "[seed]",
             "title": "Videos filename pattern",

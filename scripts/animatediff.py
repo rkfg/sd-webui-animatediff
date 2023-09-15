@@ -256,7 +256,7 @@ class AnimateDiffScript(scripts.Script):
         video_extension = shared.opts.data.get("animatediff_file_format", "") or "gif"
         video_path = f"{video_path_before_extension}.{video_extension}"
         video_paths.append(video_path)
-        video_duration = 1 / fps
+        video_duration = 1000 / fps
         video_use_lossless_quality = shared.opts.data.get("animatediff_use_lossless_quality", False)
         video_quality = shared.opts.data.get("animatediff_video_quality", 95)
         
@@ -266,26 +266,30 @@ class AnimateDiffScript(scripts.Script):
         if ping_pong:
             npimages.extend(npimages[-2:0:-1])
         if video_extension == "gif":
-            imageio.imwrite(
-                video_path, npimages, plugin='pyav', fps=fps, 
-                codec='gif', out_pixel_format='pal8',
-                filter_graph=(
-                    {
-                        "split": ("split", ""),
-                        "palgen": ("palettegen", ""),
-                        "paluse": ("paletteuse", ""),
-                        "scale": ("scale", f"{video_list[0].width}:{video_list[0].height}")
-                    },
-                    [
-                        ("video_in", "scale", 0, 0),
-                        ("scale", "split", 0, 0),
-                        ("split", "palgen", 1, 0),
-                        ("split", "paluse", 0, 0),
-                        ("palgen", "paluse", 0, 1),
-                        ("paluse", "video_out", 0, 0),
-                    ]
+            if shared.opts.data.get("animatediff_optimize_gif_palette", True):
+                imageio.imwrite(
+                    video_path, npimages, plugin='pyav', fps=fps, 
+                    codec='gif', out_pixel_format='pal8',
+                    filter_graph=(
+                        {
+                            "split": ("split", ""),
+                            "palgen": ("palettegen", ""),
+                            "paluse": ("paletteuse", ""),
+                            "scale": ("scale", f"{video_list[0].width}:{video_list[0].height}")
+                        },
+                        [
+                            ("video_in", "scale", 0, 0),
+                            ("scale", "split", 0, 0),
+                            ("split", "palgen", 1, 0),
+                            ("split", "paluse", 0, 0),
+                            ("palgen", "paluse", 0, 1),
+                            ("paluse", "video_out", 0, 0),
+                        ]
+                    )
                 )
-            )
+            else:
+                imageio.imwrite(video_path, npimages, duration=video_duration, loop=0)
+
         elif video_extension == "webp":
             if use_geninfo:
                 exif_bytes = piexif.dump({
