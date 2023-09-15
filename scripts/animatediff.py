@@ -1,5 +1,8 @@
+from copy import copy, deepcopy
 import os
 import gc
+from pprint import pprint
+from PIL.Image import Image
 import gradio as gr
 import imageio.v3 as imageio
 import ast
@@ -10,11 +13,13 @@ import piexif.helper
 from einops import rearrange
 from typing import List, Tuple
 from pathlib import Path  # Added for directory manipulation
+from torchvision import transforms
 
 # Modules from your webui
-from modules import scripts, images, shared, script_callbacks, hashes
-from modules.devices import torch_gc, device, cpu
-from modules.processing import StableDiffusionProcessing, Processed
+from modules import scripts, images, shared, script_callbacks, hashes, sd_models, devices
+from modules.devices import torch_gc, device, cpu, dtype_vae
+from modules.processing import StableDiffusionProcessing, Processed, decode_latent_batch
+from modules.scripts import PostprocessBatchListArgs
 
 # From AnimateDiff extension
 from scripts.logging_animatediff import logger_animatediff
@@ -36,6 +41,7 @@ class AnimateDiffScript(scripts.Script):
     def __init__(self):
         self.logger = logger_animatediff
         self.ui_controls = []
+        self.hr = False
 
     def title(self):
         return MODULE_NAME
@@ -68,15 +74,17 @@ class AnimateDiffScript(scripts.Script):
             model = gr.Dropdown(choices=choices, label="Motion module", type="value")
             with gr.Row():
                 enable = gr.Checkbox(value=False, label='Enable AnimateDiff')
+                ping_pong = gr.Checkbox(value=True, label="Make a ping-pong loop")
+                downscale = gr.Checkbox(value=True, label="Downscale after hires fix")
+            with gr.Row():
                 video_length = gr.Slider(minimum=1, maximum=24, value=16, step=1, label="Number of frames", precision=0)
                 fps = gr.Number(minimum=1, value=8, label="FPS", info= "(Frames per second)", precision=0)
-                ping_pong = gr.Checkbox(value=False, label="Make a ping-pong loop")
             with gr.Row():
                 unload = gr.Button(value="Move motion module to CPU (default if lowvram)")
                 remove = gr.Button(value="Remove motion module from any memory")
                 unload.click(fn=self.move_motion_module_to_cpu)
                 remove.click(fn=self.remove_motion_module)
-        self.ui_controls = enable, ping_pong, video_length, fps, model
+        self.ui_controls = enable, ping_pong, downscale, video_length, fps, model
         return self.ui_controls
         
     def make_controls_compatible_with_infotext_copy_paste(self, ui_controls = []):
@@ -174,11 +182,15 @@ class AnimateDiffScript(scripts.Script):
         p.sd_model.alphas_cumprod_prev = alphas_cumprod_prev
 
     def before_process(
-            self, p: StableDiffusionProcessing, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
+            self, p: StableDiffusionProcessing, enable_animatediff=False, 
+            ping_pong=True, downscale=True, video_length=16, fps=8, 
+            model="mm_sd_v15_v2.ckpt"):
         if enable_animatediff:
             self.logger.info(f"AnimateDiff process start with video Max frames {video_length}, FPS {fps}, duration {video_length/fps},  motion module {model}.")
             assert video_length > 0 and fps > 0, "Video length and FPS should be positive."
             p.batch_size = video_length
+            self.hr = p.enable_hr
+            p.enable_hr = False
             
             injection_params = InjectionParams(
                 video_length=video_length,
@@ -190,12 +202,50 @@ class AnimateDiffScript(scripts.Script):
             self.set_ddim_alpha(p)
                 
     def postprocess_batch_list(
-            self, p, pp, enable_animatediff=False, loop_number=0, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt", **kwargs):
+            self, p: StableDiffusionProcessing, pp: PostprocessBatchListArgs, 
+            enable_animatediff=False, ping_pong=True, downscale=True,
+            video_length=16, fps=8, model="mm_sd_v15_v2.ckpt", **kwargs):
         if enable_animatediff:
             p.main_prompt = p.all_prompts[0] ## Ensure the video's infotext displays correctly below the video
 
-    def save_video(self, p, res, ping_pong, video_length, fps, video_paths, output_directory, image_itr, generated_filename):
+    def upscale(self, p: StableDiffusionProcessing, imgs: list[Image], downscale: bool):
+        with sd_models.SkipWritingToConfig():
+            sd_models.reload_model_weights(info=p.hr_checkpoint_info)
+
+        phr = copy(p)
+        phr.enable_hr = True
+        phr.batch_size = 1
+        phr.init(p.all_prompts, p.all_negative_prompts, p.all_subseeds)
+        phr.setup_prompts()
+        phr.parse_extra_network_prompts()
+        phr.setup_conds()
+        result = []
+        with devices.without_autocast() if devices.unet_needs_upcast else devices.autocast():
+            for idx, samples in enumerate(imgs):
+                if shared.state.interrupted or shared.state.skipped:
+                    return []
+                phr.prompts=[p.prompts[idx]]
+                phr.seeds = [p.seeds[idx]]
+                phr.subseeds = [p.subseeds[idx]]
+                img = transforms.ToTensor()(samples)
+                sbatch = img[None, :, :, :]
+                upscaled = phr.sample_hr_pass(None, sbatch, phr.seeds,
+                                               phr.subseeds, phr.subseed_strength, phr.prompts)
+                if upscaled:
+                    upscaled = torch.clamp(upscaled[0], min=0.0, max=1.0)
+                    img = transforms.ToPILImage()(upscaled)
+                    if downscale:
+                        img = images.resize_image(0, img, p.width, p.height, 'lanczos')
+                    result.append(img)
+        return result
+
+
+    def save_video(self, p, res, ping_pong, downscale, video_length, fps, video_paths, output_directory, image_itr, generated_filename):
         video_list = res.images[image_itr:image_itr + video_length]
+        if self.hr:
+            upscaled_video_list = self.upscale(p, video_list, downscale)
+            if len(upscaled_video_list):
+                video_list = upscaled_video_list
         seq = images.get_next_sequence_number(output_directory, "")
         filename = f"{seq:05}-{generated_filename}"
         video_path_before_extension = f"{output_directory}/{filename}"
@@ -230,7 +280,8 @@ class AnimateDiffScript(scripts.Script):
                         ("palgen", "paluse", 0, 1),
                         ("paluse", "video_out", 0, 0),
                     ]
-                ))
+                )
+            )
         elif video_extension == "webp":
             if use_geninfo:
                 exif_bytes = piexif.dump({
@@ -242,11 +293,11 @@ class AnimateDiffScript(scripts.Script):
 
     def postprocess(
             self, p: StableDiffusionProcessing, res: Processed, 
-            enable_animatediff=False, ping_pong=False, video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
+            enable_animatediff=False, ping_pong=True, downscale=True,
+            video_length=16, fps=8, model="mm_sd_v15_v2.ckpt"):
         
         if enable_animatediff:
             self.eject_motion_module_to_unet(p)
-                
             if shared.opts.data.get("animatediff_always_save_videos", True):
                 
                 video_paths = []
@@ -265,8 +316,18 @@ class AnimateDiffScript(scripts.Script):
                 generated_filename = namegen.apply(shared.opts.data.get("animatediff_filename_pattern","") or 
                                                    "[seed]").lstrip(' ').rstrip('\\ /')
                 
+                if self.hr:
+                    shared.state.job_count = len(res.images) - res.index_of_first_image + 1
+                    shared.state.job_no = 0
+
+                    shared.state.sampling_steps = p.hr_second_pass_steps or p.steps
+                    shared.state.sampling_step = 0
+                    shared.state.processing_has_refined_job_count = True
+
+                    shared.total_tqdm.clear()
+                    shared.total_tqdm.updateTotal(shared.state.sampling_steps * (len(res.images) - res.index_of_first_image))
                 for image_itr in range(res.index_of_first_image, len(res.images), video_length):
-                    self.save_video(p, res, ping_pong, video_length, fps, video_paths, output_directory, image_itr, generated_filename)
+                    self.save_video(p, res, ping_pong, downscale, video_length, fps, video_paths, output_directory, image_itr, generated_filename)
                     
                 res.images = video_paths
                 self.logger.info("AnimateDiff process end.")
