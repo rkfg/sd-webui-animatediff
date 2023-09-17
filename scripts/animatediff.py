@@ -190,8 +190,9 @@ class AnimateDiffScript(scripts.Script):
             self.logger.info(f"AnimateDiff process start with video Max frames {video_length}, FPS {fps}, duration {video_length/fps},  motion module {model}.")
             assert video_length > 0 and fps > 0, "Video length and FPS should be positive."
             p.batch_size = video_length
-            self.hr = p.enable_hr
-            p.enable_hr = False
+            if hasattr(p, 'enable_hr'):
+                self.hr = p.enable_hr
+                p.enable_hr = False
             p.restore_faces = restore_faces
             
             injection_params = InjectionParams(
