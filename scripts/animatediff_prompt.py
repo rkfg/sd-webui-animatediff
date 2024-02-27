@@ -4,7 +4,6 @@ import torch
 from modules.processing import StableDiffusionProcessing, Processed
 
 from scripts.animatediff_logger import logger_animatediff as logger
-from scripts.animatediff_infotext import write_params_txt
 from scripts.animatediff_ui import AnimateDiffProcess
 
 class AnimateDiffPromptSchedule:
@@ -28,7 +27,6 @@ class AnimateDiffPromptSchedule:
                     parts = res.infotexts[i].split('\nNegative prompt: ', 1)
                     if len(parts) > 1:
                         res.infotexts[i] = f"{self.original_prompt}\nNegative prompt: {parts[1]}"
-                write_params_txt(res.info)
 
 
     def parse_prompt(self, p: StableDiffusionProcessing, params: AnimateDiffProcess):

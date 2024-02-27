@@ -12,12 +12,6 @@ def update_infotext(p: StableDiffusionProcessing, params: AnimateDiffProcess):
         p.extra_generation_params["AnimateDiff"] = params.get_dict(isinstance(p, StableDiffusionProcessingImg2Img))
 
 
-def write_params_txt(info: str):
-    with open(os.path.join(data_path, "params.txt"), "w", encoding="utf8") as file:
-        file.write(info)
-
-
-
 def infotext_pasted(infotext, results):
     for k, v in results.items():
         if not k.startswith("AnimateDiff"):
