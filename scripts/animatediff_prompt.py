@@ -8,9 +8,10 @@ from scripts.animatediff_ui import AnimateDiffProcess
 
 class AnimateDiffPromptSchedule:
 
-    def __init__(self):
+    def __init__(self, p: StableDiffusionProcessing, params: AnimateDiffProcess):
         self.prompt_map = None
         self.original_prompt = None
+        self.parse_prompt(p, params)
 
 
     def save_infotext_img(self, p: StableDiffusionProcessing):
@@ -127,7 +128,8 @@ class AnimateDiffPromptSchedule:
         if isinstance(cond, torch.Tensor):
             return torch.stack(cond_list).to(cond.dtype).to(cond.device)
         else:
-            return {k: torch.stack(v).to(cond[k].dtype).to(cond[k].device) for k, v in cond_list.items()}
+            from modules.prompt_parser import DictWithShape
+            return DictWithShape({k: torch.stack(v).to(cond[k].dtype).to(cond[k].device) for k, v in cond_list.items()}, None)
 
 
     @staticmethod
